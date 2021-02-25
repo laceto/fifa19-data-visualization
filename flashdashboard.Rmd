@@ -24,10 +24,14 @@ library(dplyr)
 library(flexdashboard) # devtools::install_github('rstudio/flexdashboard')
 library(shinyWidgets)
 library(stringr)
+library(tibble)
+library(scales)
+library(ggradar)
+library(ggiraphExtra)
 options(scipen=999)
 
-full_tracts <- readxl::read_xlsx("./fifa19.xlsx") %>%
-  # dplyr::sample_n(1000) %>%
+full_tracts <- readxl::read_xlsx("./fifa19.xlsx", sheet = "selection") %>%
+  # dplyr::sample_n(100) %>%
   dplyr::filter(!is.na(Position))
 
 position <- tibble(Position = c("CF", "ST", "RS", "LS", "RF", "LW","LM","CDM", "LDM", "RDM", "CM", "LCM", "RCM", "CAM", "LAM", "RM","RW", "LWB", "LB", "LCB", "CB", "RB", "RCB", "RWB", "GK"),
@@ -36,7 +40,13 @@ position <- tibble(Position = c("CF", "ST", "RS", "LS", "RF", "LW","LM","CDM", "
 full_tracts <- full_tracts %>%
   dplyr::left_join(., position, by = "Position") %>%
   dplyr::filter(!is.na(Role)) %>%
-  dplyr::mutate(Value = if_else(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "[:alpha:]") == "M", 1000000, 100000) * as.numeric(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "\\d+"))) %>%
+  dplyr::mutate(Value = if_else(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "[:alpha:]") == "M", 1000000, 1000) * as.numeric(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "\\d+")),
+                Weight = stringr::str_replace(Weight, "lbs", ""),
+                Height = stringr::str_replace_all(Height, "'", "."),
+                Weight = as.numeric(Weight),
+                Height = as.numeric(Height),
+                Wage = if_else(stringr::str_extract(stringr::str_replace(Wage, "\\\200", ""), "[:alpha:]") == "M", 1000000, 1000) * as.numeric(stringr::str_extract(stringr::str_replace(Wage, "\\\200", ""), "\\d+")),
+                Wage = Wage * 12) %>%
   dplyr::filter(!is.na(Value))
 
 selectedData <- reactive({
@@ -45,9 +55,16 @@ selectedData <- reactive({
     dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight)
   } else {
   data <- full_tracts %>%
-    dplyr::filter(Nationality == input$Nationality) %>%
+    dplyr::filter(Nationality == input$Nationality,
+                  Value >= input$Value * 1000000) %>%
     dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight)
   }
+})
+
+selectedDataClub <- reactive({
+  full_tracts %>%
+    dplyr::filter(Club == input$Club) %>%
+    dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight, `Preferred Foot`)
 })
 
 ```
@@ -97,6 +114,8 @@ pickerInput(
       ),
       multiple = TRUE
     )
+
+shiny::numericInput(inputId = "Value", "Player value greather then (in M)", min = 1, max = max(full_tracts$Value), value = 20)
 
 ```
 
@@ -214,7 +233,7 @@ renderPlot(
 
 
 renderPlot(
-  ggplot(selectedData(), aes(x = Value)) +
+  ggplot(selectedData() %>% dplyr::filter(Value >= input$Value * 1000000), aes(x = Value)) +
   geom_bar(aes(col = "orange", fill = ..count..)) +
   scale_fill_distiller(palette = "Reds", direction = 1) +
   ggtitle("Distribution of Value between 50M–100M+") +
@@ -228,7 +247,7 @@ renderPlot(
 
 
 
-Compare over time
+Explore club
 ============================================================================
 
 Inputs {.sidebar}
@@ -237,41 +256,257 @@ Inputs {.sidebar}
 ```{r}
 
 # Define inputs
-selectInput('Nationality', label = 'Select a Nationality', choices = unique(full_tracts$Nationality), selected = "Italy")
+pickerInput(
+      inputId = "Club",
+      label = "Select a Club",
+      choices = sort(unique(full_tracts$Club)),
+      selected = "Inter",
+      options = list(
+        `actions-box` = TRUE
+      ),
+      multiple = FALSE
+    )
 
-# pickerInput(
-#       inputId = "Nationality", 
-#       label = "Select a Nationality", 
-#       choices = sort(c("All", unique(full_tracts$Nationality))), 
-#       selected = "All",
-#       options = list(
-#         `actions-box` = TRUE
-#       ), 
-#       multiple = TRUE
-#     )
+shiny::sliderInput(inputId = "top_n", "How many top players", min = 1, max = 10, value = 5)
 
 ```
 
+<!-- Row -->
+<!-- ---------------------------------------------------------------------------- -->
 
+<!-- ### Table all players from selected Club -->
+
+<!-- ```{r} -->
+
+<!-- renderTable({ -->
+<!--   selectedDataClub() -->
+<!-- }) -->
+
+<!-- ``` -->
 Row
-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
 
-### Comparative diversity gradients, 1990-2010
+### 
 
 ```{r}
 
+renderValueBox({
+      valueBox(
+        paste0(round(sum(selectedDataClub()$Value) / 1000000, 2), " Total value"), icon = icon("list"),
+        color = "info"
+      )
+    })
 
+```
+
+### 
+
+```{r}
+
+renderValueBox({
+      valueBox(
+        paste0(round(mean(selectedDataClub()$Value) / 1000000, 2), " Mean value"), icon = icon("list"),
+        color = "info"
+      )
+    })
+
+```
+
+### 
+
+```{r}
+
+renderValueBox({
+      valueBox(
+        paste0(round(sum(selectedDataClub()$Wage) / 1000000, 2), " Total Wage"), icon = icon("list"),
+        color = "info"
+      )
+    })
 
 ```
 
 Row
 -----------------------------------------------------------------------------
 
-### Shifts in neighborhood diversity between 1990 and 2010
+### Top Players by Value
+
+```{r}
+
+renderPlot(
+  
+  selectedDataClub() %>%
+  dplyr::arrange(desc(Value)) %>%
+  head(input$top_n) %>% 
+  ggplot(., aes(x = reorder(Name, Value), y = Value)) + 
+  labs(x = 'Name') +
+  geom_bar(stat = "identity", aes(col = "orange", fill = Value)) + 
+  coord_flip() + 
+  # scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Top Players") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+```
+
+### Preferred foot
 
 ```{r}
 
 
+renderPlot(
+  
+  selectedDataClub() %>%
+  dplyr::count(`Preferred Foot`) %>%
+  dplyr::mutate(n = as.numeric(n)) %>%
+  ggplot(., aes(x="", y=n, fill=`Preferred Foot`)) +
+  geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0) +
+  scale_fill_brewer(palette = "Reds", direction = 1) +
+  theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid=element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold")
+  ) +
+  theme(axis.text.x=element_blank()) +
+  ggtitle("Most preferred foot")
+)
+
+```
+
+Row
+-----------------------------------------------------------------------------
+
+### Top Players by Weight
+
+```{r}
+
+renderPlot(
+  
+  selectedDataClub() %>%
+  dplyr::arrange(desc(Weight)) %>%
+  head(input$top_n) %>% 
+  ggplot(., aes(x = reorder(Name, Weight), y = Weight)) + 
+  labs(x = 'Name') +
+  geom_bar(stat = "identity", aes(col = "orange", fill = Weight)) + 
+  coord_flip() + 
+  # scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Top Players") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+```
+
+### Top Players by Height
+
+```{r}
+
+renderPlot(
+  
+  selectedDataClub() %>%
+  dplyr::arrange(desc(Height)) %>%
+  head(input$top_n) %>% 
+  ggplot(., aes(x = reorder(Name, Height), y = Height)) + 
+  labs(x = 'Name') +
+  geom_bar(stat = "identity", aes(col = "orange", fill = Height)) + 
+  coord_flip() + 
+  # scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Top Players") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+```
+
+
+
+Compare clubs
+============================================================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+# Define inputs
+pickerInput(
+      inputId = "Club1",
+      label = "Select a Club to compare",
+      choices = sort(unique(full_tracts$Club)),
+      selected = "Inter",
+      options = list(
+        `actions-box` = TRUE
+      ),
+      multiple = FALSE
+    )
+
+pickerInput(
+      inputId = "Club2",
+      label = "Select a Club to compare",
+      choices = sort(unique(full_tracts$Club)),
+      selected = "Juventus",
+      options = list(
+        `actions-box` = TRUE
+      ),
+      multiple = FALSE
+    )
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Radar comparison
+
+```{r}
+
+tocompare <- reactive({
+  data <- full_tracts %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+    dplyr::select(Club, Role, Crossing:GKReflexes) %>%
+  mutate(across(where(is.numeric), rescale, na.rm = TRUE)) %>%
+  tidyr::pivot_longer(cols = c("Crossing":"GKReflexes"), names_to = "Feature", values_to = "value") %>%
+  dplyr::group_by(Club, Feature) %>%
+  dplyr::summarise(value = mean(value)) %>%
+  tidyr::pivot_wider(names_from = "Feature", values_from = "value")
+  return(data)
+})
+
+renderPlot(ggradar(tocompare()))
+
+```
+
+### Radar comparison by Role
+
+```{r}
+
+tocompare2 <- reactive({
+  data <- full_tracts %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+    dplyr::select(Club, Role, Crossing:GKReflexes) %>%
+  mutate(across(where(is.numeric), rescale, na.rm = TRUE)) %>%
+  tidyr::pivot_longer(cols = c("Crossing":"GKReflexes"), names_to = "Feature", values_to = "value") %>%
+  dplyr::group_by(Role, Club, Feature) %>%
+  dplyr::summarise(value = mean(value)) %>%
+  tidyr::pivot_wider(names_from = "Feature", values_from = "value")
+  return(data)
+})
+
+
+
+renderPlot(
+
+ggRadar(data=tocompare2(), aes(colour=Role, facet=Club), rescale = FALSE, 
+        interactive=TRUE, use.label=FALSE, 
+        legend.position = "right", alpha=0.2, size=0.5)
+)
 
 ```
 
