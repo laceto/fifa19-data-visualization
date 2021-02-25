@@ -1,5 +1,5 @@
 ---
-title: "Locating neighborhood diversity in the American metropolis"
+title: "FIFA 19"
 runtime: shiny
 output: 
   flexdashboard::flex_dashboard:
@@ -22,48 +22,89 @@ library(ggplot2) # devtools::install_github('hadley/ggplot2')
 library(readxl)
 library(dplyr)
 library(flexdashboard) # devtools::install_github('rstudio/flexdashboard')
+library(shinyWidgets)
+library(stringr)
+options(scipen=999)
 
 full_tracts <- readxl::read_xlsx("./fifa19.xlsx") %>%
-  dplyr::sample_n(1000) %>%
+  # dplyr::sample_n(1000) %>%
   dplyr::filter(!is.na(Position))
 
 position <- tibble(Position = c("CF", "ST", "RS", "LS", "RF", "LW","LM","CDM", "LDM", "RDM", "CM", "LCM", "RCM", "CAM", "LAM", "RM","RW", "LWB", "LB", "LCB", "CB", "RB", "RCB", "RWB", "GK"),
                    Role = c(rep("Striker", 5), rep("Midfielder", 12), rep("Defender", 7), "Goalkeeper"))
 
 full_tracts <- full_tracts %>%
-  dplyr::left_join(., position, by = "Position")
+  dplyr::left_join(., position, by = "Position") %>%
+  dplyr::filter(!is.na(Role)) %>%
+  dplyr::mutate(Value = if_else(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "[:alpha:]") == "M", 1000000, 100000) * as.numeric(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "\\d+"))) %>%
+  dplyr::filter(!is.na(Value))
 
 selectedData <- reactive({
+  if(input$Nationality == "All") {
+    full_tracts %>%
+    dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight)
+  } else {
   data <- full_tracts %>%
     dplyr::filter(Nationality == input$Nationality) %>%
     dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight)
+  }
 })
 
 ```
 
-Sidebar {.sidebar}
-======================================================================
+<!-- Sidebar {.sidebar} -->
+<!-- ====================================================================== -->
 
 ```{r}
 
 # Define inputs
-selectInput('Nationality', label = 'Select a Nationality', choices = unique(full_tracts$Nationality), selected = "Italy")
+# selectInput('Nationality', label = 'Select a Nationality', choices = unique(full_tracts$Nationality), selected = "Italy")
+
+# pickerInput(
+#       inputId = "Nationality", 
+#       label = "Select a Nationality", 
+#       choices = sort(c("All", unique(full_tracts$Nationality))), 
+#       selected = "All",
+#       options = list(
+#         `actions-box` = TRUE
+#       ), 
+#       multiple = TRUE
+#     )
 
 ```
 
-Use the __explore nationality__ tab to explore neighborhood diversity for your chosen metropolitan area in 2010.  The red line on the scatterplot represents a locally-weighted estimate of how diversity varies in the metropolitan area by distance from its urban core or cores.  Click and drag on the scatterplot to highlight the corresponding Census tracts on the map below, and click on a Census tract on the map to generate a chart of race and ethnicity counts.  
+<!-- Use the __explore nationality__ tab to explore neighborhood diversity for your chosen metropolitan area in 2010.  The red line on the scatterplot represents a locally-weighted estimate of how diversity varies in the metropolitan area by distance from its urban core or cores.  Click and drag on the scatterplot to highlight the corresponding Census tracts on the map below, and click on a Census tract on the map to generate a chart of race and ethnicity counts.   -->
 
-Click the __Compare over time__ tab to examine how locally-weighted estimates of neighborhood diversity by distance from the urban core has varied between the 1990, 2000, and 2010 Censuses, and view maps of these shifts over time. To learn more about the project, click the __About__ tab.  
+<!-- Click the __Compare over time__ tab to examine how locally-weighted estimates of neighborhood diversity by distance from the urban core has varied between the 1990, 2000, and 2010 Censuses, and view maps of these shifts over time. To learn more about the project, click the __About__ tab.   -->
 
-Application author: [Kyle Walker](http://personal.tcu.edu/kylewalker), [Texas Christian University](http://www.tcu.edu)
+<!-- Application author: [Kyle Walker](http://personal.tcu.edu/kylewalker), [Texas Christian University](http://www.tcu.edu) -->
 
 explore nationality
 ======================================================================
 
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+pickerInput(
+      inputId = "Nationality",
+      label = "Select a Nationality",
+      choices = sort(c("All", unique(full_tracts$Nationality))),
+      selected = "All",
+      options = list(
+        `actions-box` = TRUE
+      ),
+      multiple = TRUE
+    )
+
+```
+
+
 Row
 -----------------------------------------------------------------------
 
-### Diversity gradient
+### Table all players from selected Nationality
 
 ```{r}
 
@@ -75,7 +116,7 @@ renderTable({
 Row 
 -----------------------------------------------------------------------
 
-### Map of diversity scores
+### Playing Roles
 
 ```{r}
 
@@ -89,7 +130,7 @@ renderPlot(
 )
 ```
 
-### Race/ethnicity, selected tract (click on the map to show chart)
+### Playing Positions
 
 ```{r}
 
@@ -106,8 +147,111 @@ renderPlot(
 
 ```
 
+Row 
+-----------------------------------------------------------------------
+
+### Age Distribution
+
+```{r}
+
+renderPlot(
+  selectedData() %>%
+  ggplot2::ggplot(data = ., aes(Age)) + 
+  geom_histogram(binwidth = 1, col = "orange", aes(fill = ..count..)) + 
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Distribution based on Age") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+
+```
+
+### Age Distribution and Roles
+
+```{r}
+
+renderPlot(
+  selectedData() %>%
+  ggplot2::ggplot(data = ., aes(Age)) + 
+  geom_density(col = "orange", aes(fill = Role), alpha = 0.5) +
+  facet_grid(.~Role) + 
+  ggtitle("Distribution based on Age and Role") + 
+  theme_light() +
+  theme(legend.position = 'none')
+)
+
+
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Distribution by Overall Rating
+
+```{r}
+
+# g_overall <- ggplot(data = selectedData(), aes(Overall))
+
+
+renderPlot(
+  ggplot(data = selectedData(), aes(Overall)) + 
+  geom_histogram(binwidth = 2, col = "orange", aes(fill = ..count..)) + 
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Distribution based on Overall Rating") + 
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+
+```
+
+### Distribution by Player Value
+
+```{r}
+
+
+
+
+renderPlot(
+  ggplot(selectedData(), aes(x = Value)) +
+  geom_bar(aes(col = "orange", fill = ..count..)) +
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Distribution of Value between 50M–100M+") +
+  theme_minimal() +
+  theme(legend.position = 'none')
+)
+
+
+```
+
+
+
+
 Compare over time
 ============================================================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+# Define inputs
+selectInput('Nationality', label = 'Select a Nationality', choices = unique(full_tracts$Nationality), selected = "Italy")
+
+# pickerInput(
+#       inputId = "Nationality", 
+#       label = "Select a Nationality", 
+#       choices = sort(c("All", unique(full_tracts$Nationality))), 
+#       selected = "All",
+#       options = list(
+#         `actions-box` = TRUE
+#       ), 
+#       multiple = TRUE
+#     )
+
+```
+
 
 Row
 ----------------------------------------------------------------------------
