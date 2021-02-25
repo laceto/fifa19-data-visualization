@@ -1,0 +1,186 @@
+---
+title: "Locating neighborhood diversity in the American metropolis"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    social: menu
+    source_code: https://github.com/laceto/fifa19-data-visualization
+    theme: simplex
+
+---
+
+<!-- Learn more about flexdashboard at https://rstudio.github.io/flexdashboard -->
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(readxl)
+library(shiny)
+library(ggplot2) # devtools::install_github('hadley/ggplot2')
+library(readxl)
+library(dplyr)
+library(flexdashboard) # devtools::install_github('rstudio/flexdashboard')
+
+full_tracts <- readxl::read_xlsx("./fifa19.xlsx") %>%
+  dplyr::sample_n(1000) %>%
+  dplyr::filter(!is.na(Position))
+
+position <- tibble(Position = c("CF", "ST", "RS", "LS", "RF", "LW","LM","CDM", "LDM", "RDM", "CM", "LCM", "RCM", "CAM", "LAM", "RM","RW", "LWB", "LB", "LCB", "CB", "RB", "RCB", "RWB", "GK"),
+                   Role = c(rep("Striker", 5), rep("Midfielder", 12), rep("Defender", 7), "Goalkeeper"))
+
+full_tracts <- full_tracts %>%
+  dplyr::left_join(., position, by = "Position")
+
+selectedData <- reactive({
+  data <- full_tracts %>%
+    dplyr::filter(Nationality == input$Nationality) %>%
+    dplyr::select(Name, Age, Overall, Club, Value, Wage, Role, Position, Height, Weight)
+})
+
+```
+
+Sidebar {.sidebar}
+======================================================================
+
+```{r}
+
+# Define inputs
+selectInput('Nationality', label = 'Select a Nationality', choices = unique(full_tracts$Nationality), selected = "Italy")
+
+```
+
+Use the __explore nationality__ tab to explore neighborhood diversity for your chosen metropolitan area in 2010.  The red line on the scatterplot represents a locally-weighted estimate of how diversity varies in the metropolitan area by distance from its urban core or cores.  Click and drag on the scatterplot to highlight the corresponding Census tracts on the map below, and click on a Census tract on the map to generate a chart of race and ethnicity counts.  
+
+Click the __Compare over time__ tab to examine how locally-weighted estimates of neighborhood diversity by distance from the urban core has varied between the 1990, 2000, and 2010 Censuses, and view maps of these shifts over time. To learn more about the project, click the __About__ tab.  
+
+Application author: [Kyle Walker](http://personal.tcu.edu/kylewalker), [Texas Christian University](http://www.tcu.edu)
+
+explore nationality
+======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Diversity gradient
+
+```{r}
+
+renderTable({
+  selectedData()
+})
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Map of diversity scores
+
+```{r}
+
+renderPlot(
+  ggplot(selectedData(), aes(Role)) + 
+  geom_bar(aes(col = "orange", fill = ..count..)) + 
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Distribution of Players based on General Playing Roles") + 
+  theme_minimal() + 
+  theme(legend.position = 'none')
+)
+```
+
+### Race/ethnicity, selected tract (click on the map to show chart)
+
+```{r}
+
+
+renderPlot(
+  ggplot(selectedData(), aes(Position)) + 
+  geom_bar(aes(col = "orange", fill = ..count..)) + 
+  scale_fill_distiller(palette = "Reds", direction = 1) +
+  ggtitle("Distribution of Players based on Best Positions") + 
+  theme_minimal() + 
+  theme(legend.position = 'none')
+)
+
+
+```
+
+Compare over time
+============================================================================
+
+Row
+----------------------------------------------------------------------------
+
+### Comparative diversity gradients, 1990-2010
+
+```{r}
+
+
+
+```
+
+Row
+-----------------------------------------------------------------------------
+
+### Shifts in neighborhood diversity between 1990 and 2010
+
+```{r}
+
+
+
+```
+
+
+About
+============================================================================
+
+This application is in support of the article in _Urban Studies_, ["Locating neighborhood diversity in the American Metropolis."](http://usj.sagepub.com/content/early/2016/04/29/0042098016643481.abstract)  The article analyzes geographic variations in neighborhood racial and ethnic diversity over time in large metropolitan areas in the United States.  
+
+The key metric in this article is the neighborhood-level _entropy index_ (called "diversity score" in the application), which measures the degree of neighborhood diversity for four general racial/ethnic groups: non-Hispanic white, non-Hispanic black, Hispanic, and Asian/Pacific Islander.  The entropy index $E$ is calculated as follows (Farrell and Lee 2011):  
+
+$$E = {\sum\limits_{r=1}^{n}Q_r}ln{\dfrac{1}{Q_r}}$$
+
+where $Q_r$ is group $r$'s proportion of the neighborhood population.  The maximum value of $E$, then, is the natural log of the number of groups - which would occur when all groups in a neighborhood are of equal size. Following [Hall and Lee (2010)](http://usj.sagepub.com/content/47/1/3.abstract), [Farrell and Lee (2011)](http://www.sciencedirect.com/science/article/pii/S0049089X11000706), and [Wright et al. (2014)](http://www.tandfonline.com/doi/abs/10.1080/00330124.2012.735924#.Vwxi7fkrLRY), $E$ is scaled by its maximum by dividing by $ln(4)$, setting the range of values from 0 to 1.  
+
+To study how neighborhood diversity varies with distance from urban cores in the largest metropolitan areas in the United States, entropy indices are plotted against the distance from the Census tract centroids to their corresponding nearest major city hall.  Locally-weighted regression (LOESS) is then used to produce a "diversity gradient" of estimates of neighborhood diversity by distance from the city center.  
+
+This application allows visitors to explore this part of the paper interactively.  The article follows by using local exploratory spatial data analysis techniques to identify how spatial clusters of diversity have shifted over time; this will be the focus of a future application that corresponds to an extension of the study published in _Urban Studies._  
+
+Demographic data for the paper come from [Brown University's Longitudinal Tract Database](http://www.s4.brown.edu/us2010/Researcher/LTDB.htm), and geographic data in the paper come from the [National Historical Geographic Information System](https://www.nhgis.org/).  Geographic data in the application are from the [US Census Bureau's Cartographic Boundary Files](https://www.census.gov/geo/maps-data/data/tiger-cart-boundary.html) and subsequently simplified with the [rmapshaper](https://github.com/ateucher/rmapshaper) R package to improve performance.  
+
+The application is built with the [Shiny](http://shiny.rstudio.com) framework for the [R programming language](https://www.r-project.org/). The application layout is produced with the [flexdashboard](http://rstudio.github.io/flexdashboard/index.html) package, and the charts and maps use [Plotly](http://plot.ly), [Leaflet.js](http://leafletjs.com/), [Highcharts](http://www.highcharts.com/), and [ggplot2](http://ggplot2.org/), all accessed through their corresponding R packages.  
+
+Research code for the article is available upon request, and will be formally released this summer as a GitHub repository.  Code for the application is available at <https://github.com/walkerke/neighborhood_diversity>.  
+
+I welcome feedback and suggestions!  [Please visit my personal website](http://personal.tcu.edu/kylewalker/) for contact information or [connect with me on Twitter](https://twitter.com/kyle_e_walker).  
+
+
+
+<style>
+
+#sidebar.section.sidebar {
+
+  background-color: white; 
+  font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+
+}
+
+.js-irs-0 .irs-bar {
+border-top-color: #d01010;
+border-bottom-color: #d01010;
+} 
+
+.js-irs-0 .irs-bar-edge {
+border-color: #d01010;
+}
+
+.js-irs-0 .irs-single, .js-irs-0 .irs-bar-edge, .js-irs-0 .irs-bar {
+background: #a00;
+}
+
+</style>
+
+
+
+
