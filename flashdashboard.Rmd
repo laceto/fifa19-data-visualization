@@ -96,7 +96,7 @@ selectedDataClub <- reactive({
 
 <!-- Application author: [Kyle Walker](http://personal.tcu.edu/kylewalker), [Texas Christian University](http://www.tcu.edu) -->
 
-explore nationality
+Explore Nationality
 ======================================================================
 
 Inputs {.sidebar}
@@ -247,7 +247,7 @@ renderPlot(
 
 
 
-Explore club
+Explore Club
 ============================================================================
 
 Inputs {.sidebar}
@@ -350,7 +350,7 @@ renderPlot(
 
 ```
 
-### Preferred foot
+### Preferred Foot
 
 ```{r}
 
@@ -427,7 +427,7 @@ renderPlot(
 
 
 
-Compare clubs
+Compare Clubs
 ============================================================================
 
 Inputs {.sidebar}
@@ -458,12 +458,23 @@ pickerInput(
       multiple = FALSE
     )
 
+pickerInput(
+      inputId = "role",
+      label = "Select a role to compare",
+      choices = sort(unique(full_tracts$Role)),
+      selected = "Goalkeeper",
+      options = list(
+        `actions-box` = TRUE
+      ),
+      multiple = FALSE
+    )
+
 ```
 
 Row
 -----------------------------------------------------------------------
 
-### Radar comparison
+### Radar Comparison
 
 ```{r}
 
@@ -483,29 +494,121 @@ renderPlot(ggradar(tocompare()))
 
 ```
 
-### Radar comparison by Role
+### Radar Comparison by Role
 
 ```{r}
 
 tocompare2 <- reactive({
   data <- full_tracts %>%
-    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2), Role == input$role) %>%
     dplyr::select(Club, Role, Crossing:GKReflexes) %>%
   mutate(across(where(is.numeric), rescale, na.rm = TRUE)) %>%
   tidyr::pivot_longer(cols = c("Crossing":"GKReflexes"), names_to = "Feature", values_to = "value") %>%
-  dplyr::group_by(Role, Club, Feature) %>%
+  dplyr::group_by(Club, Feature) %>%
   dplyr::summarise(value = mean(value)) %>%
   tidyr::pivot_wider(names_from = "Feature", values_from = "value")
   return(data)
 })
 
+renderPlot(ggradar(tocompare2()))
+
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Pyramid Age
+
+```{r}
+
+data <- reactive({
+  data <- full_tracts %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+    dplyr::count(Club, Age)
+  
+  data <- data %>%
+    dplyr::count(Club) %>%
+    dplyr::mutate(direction = c(-1, 1),
+                  n = NULL,
+                  sign2 = NULL) %>%
+    dplyr::right_join(
+      full_tracts %>%
+        dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+        dplyr::count(Club, Age)
+      ) %>%
+    dplyr::mutate(max_n = max(n),
+                  n = n * direction,
+                  direction = NULL)
+  
+  return(data)
+})
+
+max_n <- reactive({
+  max_n <- data()$max_n[1]
+  return(max_n)
+})
+
+renderPlot(
+  data() %>%
+  ggplot(aes(x = Age, fill = Club,
+                 y = n)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = abs, limits = max_n() * c(-1,1)) +
+  coord_flip() +
+  scale_fill_brewer(palette = "Reds")
+)
+
+```
+
+### Overall by Preferred Foot 
+
+```{r}
+
+data2 <- reactive({
+  data2 <- full_tracts %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2))
+  return(data2)
+})
+
 
 
 renderPlot(
+   
+  ggplot2::ggplot(data2(), aes(x = Role, y = Overall)) + 
+  geom_bar(
+    aes(fill = Club), stat = "identity", color = "white",
+    position = position_dodge(0.9)
+    ) + 
+  # labs(title = "TipoEvento by Antidurata") +
+  scale_fill_brewer(palette = "Reds") + 
+  facet_wrap(~`Preferred Foot`)
+)
 
-ggRadar(data=tocompare2(), aes(colour=Role, facet=Club), rescale = FALSE, 
-        interactive=TRUE, use.label=FALSE, 
-        legend.position = "right", alpha=0.2, size=0.5)
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Feature by Roles 
+
+```{r}
+
+data3 <- reactive({
+  return(full_tracts %>%
+    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
+    dplyr::select(Club, Role, Crossing:GKReflexes) %>%
+  tidyr::pivot_longer(cols = c("Crossing":"GKReflexes"), names_to = "Feature", values_to = "value"))
+})
+
+renderPlot(
+   
+  ggplot(data3(), aes(Feature, value)) + 
+  geom_point() + 
+  geom_point(aes(colour = Club)) + 
+  coord_flip() + 
+  facet_wrap(~Role, ncol = 4)+ scale_color_brewer(palette="Reds")
+
 )
 
 ```
@@ -514,25 +617,12 @@ ggRadar(data=tocompare2(), aes(colour=Role, facet=Club), rescale = FALSE,
 About
 ============================================================================
 
-This application is in support of the article in _Urban Studies_, ["Locating neighborhood diversity in the American Metropolis."](http://usj.sagepub.com/content/early/2016/04/29/0042098016643481.abstract)  The article analyzes geographic variations in neighborhood racial and ethnic diversity over time in large metropolitan areas in the United States.  
+Questa dashboard descrive e analizza il dataset dei giocatori del famoso gioco FIFA 19.  
+Per velocizzare il caricamento dei dati sono state selezionate solo squadre relative al campionato Italiano e spagnolo.  
+L'applicazione permette all'utente di visualizzare alcune fondamentali caratteristiche di un calciatore, nonchè statistiche riguardanti la nazionalità dei giocatori stessi e il confronto tra due club diversi. 
 
-The key metric in this article is the neighborhood-level _entropy index_ (called "diversity score" in the application), which measures the degree of neighborhood diversity for four general racial/ethnic groups: non-Hispanic white, non-Hispanic black, Hispanic, and Asian/Pacific Islander.  The entropy index $E$ is calculated as follows (Farrell and Lee 2011):  
-
-$$E = {\sum\limits_{r=1}^{n}Q_r}ln{\dfrac{1}{Q_r}}$$
-
-where $Q_r$ is group $r$'s proportion of the neighborhood population.  The maximum value of $E$, then, is the natural log of the number of groups - which would occur when all groups in a neighborhood are of equal size. Following [Hall and Lee (2010)](http://usj.sagepub.com/content/47/1/3.abstract), [Farrell and Lee (2011)](http://www.sciencedirect.com/science/article/pii/S0049089X11000706), and [Wright et al. (2014)](http://www.tandfonline.com/doi/abs/10.1080/00330124.2012.735924#.Vwxi7fkrLRY), $E$ is scaled by its maximum by dividing by $ln(4)$, setting the range of values from 0 to 1.  
-
-To study how neighborhood diversity varies with distance from urban cores in the largest metropolitan areas in the United States, entropy indices are plotted against the distance from the Census tract centroids to their corresponding nearest major city hall.  Locally-weighted regression (LOESS) is then used to produce a "diversity gradient" of estimates of neighborhood diversity by distance from the city center.  
-
-This application allows visitors to explore this part of the paper interactively.  The article follows by using local exploratory spatial data analysis techniques to identify how spatial clusters of diversity have shifted over time; this will be the focus of a future application that corresponds to an extension of the study published in _Urban Studies._  
-
-Demographic data for the paper come from [Brown University's Longitudinal Tract Database](http://www.s4.brown.edu/us2010/Researcher/LTDB.htm), and geographic data in the paper come from the [National Historical Geographic Information System](https://www.nhgis.org/).  Geographic data in the application are from the [US Census Bureau's Cartographic Boundary Files](https://www.census.gov/geo/maps-data/data/tiger-cart-boundary.html) and subsequently simplified with the [rmapshaper](https://github.com/ateucher/rmapshaper) R package to improve performance.  
-
-The application is built with the [Shiny](http://shiny.rstudio.com) framework for the [R programming language](https://www.r-project.org/). The application layout is produced with the [flexdashboard](http://rstudio.github.io/flexdashboard/index.html) package, and the charts and maps use [Plotly](http://plot.ly), [Leaflet.js](http://leafletjs.com/), [Highcharts](http://www.highcharts.com/), and [ggplot2](http://ggplot2.org/), all accessed through their corresponding R packages.  
-
-Research code for the article is available upon request, and will be formally released this summer as a GitHub repository.  Code for the application is available at <https://github.com/walkerke/neighborhood_diversity>.  
-
-I welcome feedback and suggestions!  [Please visit my personal website](http://personal.tcu.edu/kylewalker/) for contact information or [connect with me on Twitter](https://twitter.com/kyle_e_walker).  
+I dati e il codice utilizzati possono essere scaricati dalla mia repo [github](https://github.com/laceto/fifa19-data-visualization).  
+L'applicazione è stata costruita con un file .Rmd e decorato con alcune funzioni dei pacchetti [Shiny](http://shiny.rstudio.com) e [flexdashboard](http://rstudio.github.io/flexdashboard/index.html).  
 
 
 
