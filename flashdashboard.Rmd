@@ -587,33 +587,6 @@ renderPlot(
 
 ```
 
-Row
------------------------------------------------------------------------
-
-### Feature by Roles 
-
-```{r}
-
-data3 <- reactive({
-  return(full_tracts %>%
-    dplyr::filter(Club %in% c(input$Club1, input$Club2)) %>%
-    dplyr::select(Club, Role, Crossing:GKReflexes) %>%
-  tidyr::pivot_longer(cols = c("Crossing":"GKReflexes"), names_to = "Feature", values_to = "value"))
-})
-
-renderPlot(
-   
-  ggplot(data3(), aes(Feature, value)) + 
-  geom_point() + 
-  geom_point(aes(colour = Club)) + 
-  coord_flip() + 
-  facet_wrap(~Role, ncol = 4)+ scale_color_brewer(palette="Reds")
-
-)
-
-```
-
-
 About
 ============================================================================
 
