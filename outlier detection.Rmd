@@ -1,0 +1,248 @@
+---
+title: "esercitazione outlier detection"
+author: "| Luigi Aceto |"
+date: "`r format(Sys.Date(), '%d %B, %Y')`"
+output:
+  html_document:
+    code_folding: show
+    highlight: tango
+    keep_md: no
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_float: yes
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+  github_document:
+    toc: yes
+
+---
+
+```{r, include=FALSE}
+options(scipen=999)
+knitr::opts_chunk$set(echo = TRUE, 
+                      include = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      # fig.width = 6, 
+                      # fig.height = 6, 
+                      comment = F)
+library(tidyverse)
+library(gridExtra)
+```
+
+# FIFA19 dataset  
+
+Il dataset oggetto di analisi contiene osservazioni sui giocatori presenti nel dataset del famoso gioco FIFA19.  
+
+L'obiettivo di questa esercitazione è quello di verificare se alcune tecniche di outliers detection riescono ad identificare i valori anomali presenti nel dataset. In questo caso per valori anomali si intende un giocatore fuori dal normale in funzione dei valori delle caratteristiche del giocatore stesso presenti nel dataset.   
+
+
+
+```{r, echo=FALSE, include=TRUE}
+options(scipen = 999)
+fifa19 <- readxl::read_xlsx("./fifa19.xlsx", sheet = "selection")
+
+position <- tibble(Position = c("CF", "ST", "RS", "LS", "RF", "LW","LM","CDM", "LDM", "RDM", "CM", "LCM", "RCM", "CAM", "LAM", "RM","RW", "LWB", "LB", "LCB", "CB", "RB", "RCB", "RWB", "GK"),
+                   Role = c(rep("Striker", 5), rep("Midfielder", 12), rep("Defender", 7), "Goalkeeper"))
+
+fifa19 <- fifa19 %>%
+  dplyr::left_join(., position, by = "Position")
+
+full_tracts <- fifa19 %>%
+  # dplyr::left_join(., position, by = "Position") %>%
+  dplyr::filter(!is.na(Role)) %>%
+  dplyr::mutate(Value = if_else(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "[:alpha:]") == "M", 1000000, 1000) * as.numeric(stringr::str_extract(stringr::str_replace(Value, "\\\200", ""), "\\d+")),
+                Weight = stringr::str_replace(Weight, "lbs", ""),
+                Height = stringr::str_replace_all(Height, "'", "."),
+                Weight = as.numeric(Weight),
+                Height = as.numeric(Height),
+                Wage = if_else(stringr::str_extract(stringr::str_replace(Wage, "\\\200", ""), "[:alpha:]") == "M", 1000000, 1000) * as.numeric(stringr::str_extract(stringr::str_replace(Wage, "\\\200", ""), "\\d+")),
+                Wage = Wage * 12) %>%
+  dplyr::filter(!is.na(Value), !is.na(LS))
+
+full_tracts <- full_tracts %>%
+  tidyr::pivot_longer(data = ., cols = "LS":"RB", names_to = "roles", values_to = "value") %>%
+  # dplyr::select(role, value) %>%
+  dplyr::mutate(value = stringr::str_replace_all(value, "\\+.*$", "")) %>%
+  tidyr::pivot_wider(names_from = "roles", values_from = "value")
+
+
+full_tracts <- full_tracts %>%
+  dplyr::rename_with(., ~ tolower(gsub(" ", "_", .x, fixed = TRUE)))
+
+
+```
+
+# Univariate plot   
+
+Per ogni variabile numerica un istogramma ed un box plot sono creati al fine di identificare graficamente la presenza o meno di outliers.  
+Le code pesanti dell'istogramma o le osservazioni al di fuori del range interquartile del box plot potrebbero essere un indizio della presenza di valori anomali.  
+
+```{r, echo=FALSE, include=TRUE}
+my_hist_v2 <- function(data, variable, ...) {
+  name_var <- unique(data$vars)
+  data %>%
+    ggplot(data = ., mapping = aes(x = {{variable}})) +
+    geom_histogram() +
+    labs(x = name_var) +
+    # ggtitle(paste0("Histogram of ", name_var)) +
+    theme(plot.title = element_text(hjust = 0.5))
+}
+
+my_box_v2 <- function(data, variable, ...) {
+  name_var <- unique(data$vars)
+  data %>%
+    ggplot(data = ., mapping = aes(x = {{variable}})) +
+    ggplot2::geom_boxplot() +
+    labs(x = name_var) +
+    # ggtitle(paste0("Boxplot of ", name_var)) +
+    theme(plot.title = element_text(hjust = 0.5))
+}
+
+```
+
+Data la numerosità delle variabili a disposizione, gli istogrammi sono stati riportati in due diversi plots.  
+
+```{r, echo=FALSE, include=TRUE}
+
+full_tracts %>% 
+  dplyr::select_if(., is.numeric) %>%
+  tidyr::pivot_longer(data = ., cols = c("age":"gkreflexes"), names_to = "vars", values_to = "value") %>%
+  plyr::dlply(.data = ., .variables = "vars") %>% head(25) %>% 
+  purrr::map(.x = ., .f = ~my_hist_v2(.x, value)) %>%
+  marrangeGrob(., nrow=5, ncol=5)
+
+```
+
+```{r, echo=FALSE, include=TRUE}
+
+full_tracts %>% 
+  dplyr::select_if(., is.numeric) %>%
+  tidyr::pivot_longer(data = ., cols = c("age":"gkreflexes"), names_to = "vars", values_to = "value") %>%
+  plyr::dlply(.data = ., .variables = "vars") %>% tail(16) %>% 
+  purrr::map(.x = ., .f = ~my_hist_v2(.x, value)) %>%
+  marrangeGrob(., nrow=4, ncol=4)
+
+```
+
+Data la numerosità delle variabili a disposizione, i boxplots sono stati riportati in due diversi plots.   
+
+```{r, echo=FALSE, include=TRUE}
+full_tracts %>% 
+  dplyr::select_if(., is.numeric) %>%
+  tidyr::pivot_longer(data = ., cols = c("age":"gkreflexes"), names_to = "vars", values_to = "value") %>%
+  plyr::dlply(.data = ., .variables = "vars") %>% head(25) %>% 
+  purrr::map(.x = ., .f = ~my_box_v2(.x, value)) %>%
+  marrangeGrob(., nrow=5, ncol=5)
+```
+
+```{r, echo=FALSE, include=TRUE}
+full_tracts %>% 
+  dplyr::select_if(., is.numeric) %>%
+  tidyr::pivot_longer(data = ., cols = c("age":"gkreflexes"), names_to = "vars", values_to = "value") %>%
+  plyr::dlply(.data = ., .variables = "vars") %>% tail(16) %>% 
+  purrr::map(.x = ., .f = ~my_box_v2(.x, value)) %>%
+  marrangeGrob(., nrow=4, ncol=4)
+```
+
+# Cook’s Distance   
+
+La distanza di Cook è una misura calcolata rispetto ad un modello di regressione e definisce l'influenza di ogni data points nei valori predetti della variabile dipendente.   
+
+Dato il considerevole numero di variabili a disposizioni e considerando che non si vuole limitare l'analisi degli outliers ad una sola variabile, si è  proceduto alla costruzione di tanti modelli di regressioni quante sono le variabile numeriche nel dataset.  
+In altre parole, ogni variabile è stata regredita su tutte le altre variabili utilizzando un modello lineare di regressione definito dalle seguenti formule:  
+
+```{r, echo=FALSE, include=TRUE}
+full_tracts <- full_tracts %>%
+  dplyr::select_if(.tbl = ., .predicate = is.numeric)
+
+formulaes <- paste0(names(full_tracts), "~ .")
+# formulaes <- formulaes %>%
+#   stringr::str_subset(., "age|overall|potential|value|height|weight|crossing|finishing|shortpassing|dribbling|ballcontrol")
+
+formulaes <- formulaes %>% 
+  tail(length(.)-1)
+
+paste0("lm(", formulaes, ", data)")
+```
+
+In generale, le osservazioni che hanno una distanza di Cook maggiore di quattro volte la media sono classificate come influenti.  
+
+Per ogni modello di regressione, e quindi per ogni variabile dipendente, si sono estratti quei data points che sono risultati influenti secondo la misura di Cook e successivamente si è proceduto ad un conteggio di quante volte lo stesso data points è risultato influente.  
+I grafico successivo rappresenta quante volte un singolo data point è stato considerato come influente.   
+
+
+```{r, echo=FALSE, include=FALSE}
+fit_many_model <- function(formula){
+  y <- formula %>% stringr::str_replace(., "~ .", "")
+  # print(y)
+  mod <- lm(formula, data = full_tracts)
+  cooksd <- cooks.distance(mod)
+  influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+  head(full_tracts[influential, "jumping"])  # influential observations.
+  
+  nrow_influential <- length(influential)
+  to_display <- min(nrow_influential, 10)
+  
+  full_tracts[influential, ] %>%
+    # dplyr::top_n(x = ., n = to_display, wt = y) %>%
+    # head(full_tracts[influential, ], to_display) %>%
+    dplyr::mutate(var = y) %>%
+    dplyr::select(id, var) %>%
+    dplyr::left_join(., fifa19 %>% dplyr::select(ID, Name, Club, Role), by = c("id" = "ID"))
+}
+
+```
+
+```{r, echo=FALSE, include=TRUE}
+purrr::map(.x = formulaes, .f = fit_many_model) %>%
+  dplyr::bind_rows() %>%
+  dplyr::count(Name, sort = T) %>%
+  dplyr::top_n(35) %>%
+  dplyr::mutate(Name = forcats::fct_reorder(Name, n)) %>%
+  ggplot2::ggplot(., aes(Name, n))  +
+  geom_col() + 
+  coord_flip()
+```
+
+# Osservazioni estreme   
+
+
+La funzione outlierTest del pacchetto car fornisce i data point che sono considerati estremi dato un certo modello di regressione.  
+L'ipotesi nulla sottostante questo test è che l'outlier i non differisce dal resto delle osservazioni.  
+Utilizzando lo stesso procedimento implementato per la misura di Cook, per ogni modello di regressione e per ogni variabile si è applicata la funzione outlierTest e si sono selezionati sono quei data point per i quali l'ipotesi nulla non è rifiutata e successivamente si è proceduto ad un conteggio di quante volte per lo stesso data points si è rifiutata l'ipotesi nulla.  
+I grafico successivo rappresenta quante volte per un singolo data point si è rifiutata l'ipotesi nulla.  
+
+```{r}
+fit_many_model_2 <- function(formula){
+  y <- formula %>% stringr::str_replace(., "~ .", "")
+  # print(y)
+  mod <- lm(formula, data = full_tracts)
+  a <- car::outlierTest(mod)
+  a$bonf.p
+  outlier <- a$rstudent %>% names
+  full_tracts[outlier, ] %>%
+    dplyr::mutate(var = y,
+                  p_value = a$bonf.p) %>%
+    dplyr::select(id, var, p_value) %>%
+    dplyr::filter(p_value <= 0.05) %>%
+    dplyr::left_join(., fifa19 %>% dplyr::select(ID, Name, Club, Role), by = c("id" = "ID"))
+
+}
+```
+
+```{r, echo=FALSE, include=TRUE}
+purrr::map(.x = formulaes, .f = fit_many_model_2) %>%
+  dplyr::bind_rows() %>%
+  dplyr::count(Name, sort = T) %>%
+  dplyr::top_n(35) %>%
+  dplyr::mutate(Name = forcats::fct_reorder(Name, n)) %>%
+  ggplot2::ggplot(., aes(Name, n))  +
+  geom_col() + 
+  coord_flip()
+
+```
+
